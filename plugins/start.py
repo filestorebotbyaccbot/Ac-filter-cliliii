@@ -1,3 +1,4 @@
+import logging
 import time
 
 from pyrogram import Client, filters
@@ -11,6 +12,8 @@ import verify
 from config import Config
 from richmsg import Btn
 from utils import fmt_clock, fmt_duration
+
+log = logging.getLogger("start")
 
 
 @Client.on_message(filters.command(["start", "help"]) & filters.private)
@@ -82,3 +85,18 @@ async def second_verification(client, cq):
 @Client.on_callback_query(filters.regex(r"^noop$"))
 async def noop(client, cq):
     await cq.answer()
+
+
+# ---- force-sub "request to join" channels: remember the request, then carry on with the user's file ----
+@Client.on_chat_join_request()
+async def on_join_request(client, req):
+    chat_id, uid = req.chat.id, req.from_user.id
+    if chat_id not in [c["chat_id"] for c in settings.get("fsub_channels") or []]:
+        return
+    await db.add_joinreq(chat_id, uid)
+    if settings.get("fsub_autoapprove"):
+        try:
+            await client.approve_chat_join_request(chat_id, uid)
+        except Exception as e:
+            log.warning("couldn't approve join request: %s", e)
+    await delivery.auto_continue(client, uid)

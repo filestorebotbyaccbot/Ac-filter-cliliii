@@ -69,7 +69,7 @@ async def respond(client, message, q: str, group: bool) -> bool:
 
     if res["mode"] == "suggest":
         sid = sessions.create({"q": q, "sugs": res["sugs"], "uid": user.id, "uhtml": uhtml, "reply_to": reply_to})
-        rows = [[Btn(f"📖 {t[:45]}", cb=f"sg:{sid}:{i}", style="primary")] for i, t in enumerate(res["sugs"])]
+        rows = [[Btn(f"📖 {t['title'][:34]} ({len(t['files'])})", cb=f"sg:{sid}:{i}", style="primary")] for i, t in enumerate(res["sugs"])]
         rows += _request_row()
         secs = int(settings.get("del_suggest"))
         mid = await richmsg.send(client, message.chat.id, texts.nomatch(q, uhtml, True, secs), rows, reply_to=reply_to)
@@ -134,20 +134,17 @@ async def pick_suggestion(client, cq):
     try:
         _, sid, i = cq.data.split(":")
         s = sessions.get(sid)
-        title = s["sugs"][int(i)]
+        sug = s["sugs"][int(i)]
     except (ValueError, IndexError, TypeError):
         return await cq.answer("⌛ Expired. Please search again.", show_alert=True)
     if cq.from_user.id != s["uid"]:
         return await cq.answer("This is someone else's search 🙂 Send your own!", show_alert=True)
-    res = await engine.search(title)
-    if res["mode"] != "direct":
-        return await cq.answer("No files found for that right now.", show_alert=True)
+    # exactly the files of the tapped story - nothing else - shown in the same message
+    new_sid = sessions.create({"q": sug["title"], "hits": sug["files"], "uid": s["uid"], "uhtml": s["uhtml"], "reply_to": s.get("reply_to")})
+    text, rows = _results_view(new_sid, sessions.get(new_sid), 0)
+    await richmsg.edit(cq.message, text, rows)
+    await db.reschedule_delete(cq.message.chat.id, cq.message.id, settings.get("del_search"))
     await cq.answer()
-    try:
-        await cq.message.delete()
-    except Exception:
-        pass
-    await _send_results(client, cq.message.chat.id, title, res["hits"], s["uid"], s["uhtml"], s.get("reply_to"))
 
 
 # ---- Subscribe Updates ----
