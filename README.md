@@ -30,6 +30,11 @@
 - **server** format: the Verify button opens `your-app/go/<token>` which redirects to the shortener, so users never see the real shortener link.
 - Bypass protection: link works once, only for the user it was made for, expires, and finishing faster than the **gap** time is rejected.
 
+## Joining rules
+- **Force-sub, normal**: user must be a member. **Request mode**: the user sends a join request on the bot's link, the bot notices it (needs the bot to be **admin with "Invite users"** in that channel), and the file arrives automatically. "Auto-approve" can accept the request at once.
+- **Delivery channel (private)**: before any "Open file" button the bot checks the user is a member; if not, it asks them to join first. A public delivery channel (with @username) needs no join.
+- **Did you mean?**: tapping a suggestion turns that same message into the result list with exactly that story's files.
+
 ## Assumptions to check
 - Shortener API must be AdLinkFly-style: `https://site/api?api=KEY&url=URL&alias=ALIAS`. Other formats: send me the API doc.
 - "Delivery channel": the file is copied into that channel (auto-deleted) and the user gets an Open file button.

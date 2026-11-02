@@ -17,6 +17,8 @@ from utils import fmt_clock, fmt_duration
 
 log = logging.getLogger("delivery")
 _invites = {}
+_pending_fsub = {}  # user id -> file id they were trying to get when we asked them to join
+_private = {}       # chat id -> True if the chat has no public username
 
 
 async def temp_send(client, chat_id, text, rows=None, secs=None):
@@ -48,6 +50,38 @@ async def fsub_missing(client, uid: int) -> list:
     return missing
 
 
+def _delivery_target():
+    ch = str(settings.get("delivery_channel") or "").strip()
+    if settings.get("delivery_mode") != "channel" or not ch:
+        return None
+    return int(ch) if re.fullmatch(r"-?\d+", ch) else ch
+
+
+async def _is_private_chat(client, cid) -> bool:
+    if cid not in _private:
+        try:
+            _private[cid] = not getattr(await client.get_chat(cid), "username", None)
+        except Exception:
+            _private[cid] = True
+    return _private[cid]
+
+
+async def delivery_missing(client, uid: int) -> list:
+    """A private delivery channel can only be opened by members: make them join BEFORE any link is shown."""
+    cid = _delivery_target()
+    if cid is None or uid in Config.ADMINS or not await _is_private_chat(client, cid):
+        return []
+    try:
+        m = await client.get_chat_member(cid, uid)
+        joined = m.status not in (ChatMemberStatus.LEFT, ChatMemberStatus.BANNED)
+    except UserNotParticipant:
+        joined = False
+    except Exception as e:  # can't check (bot not admin there?) - don't lock everybody out
+        log.warning("delivery channel check failed for %s: %s", cid, e)
+        joined = True
+    return [] if joined else [{"chat_id": cid, "title": "Delivery channel", "mode": "normal", "link": ""}]
+
+
 async def invite_url(client, ch: dict):
     if ch.get("link"):
         return ch["link"]
@@ -72,7 +106,25 @@ async def send_fsub_prompt(client, uid: int, fid, missing: list):
             label = "📩 Request to join" if ch.get("mode") == "request" else "➕ Join"
             rows.append([Btn(f"{label} {ch.get('title', '')[:24]}".strip(), url=url, style="primary")])
     rows.append([Btn("✅ I've joined", cb=f"fs:{fid or '-'}", style="success")])
-    await temp_send(client, uid, texts.fsub_prompt(), rows)
+    if fid:
+        if len(_pending_fsub) > 5000:
+            _pending_fsub.clear()
+        _pending_fsub[uid] = fid
+    await temp_send(client, uid, texts.fsub_prompt(any(c.get("mode") == "request" for c in missing)), rows)
+
+
+async def auto_continue(client, uid: int):
+    """A join request arrived: if that was the last thing missing, send the file the user wanted."""
+    fid = _pending_fsub.get(uid)
+    if not fid:
+        return
+    if await fsub_missing(client, uid) or await delivery_missing(client, uid):
+        return
+    _pending_fsub.pop(uid, None)
+    try:
+        await request_file(client, uid, fid)
+    except Exception:
+        log.exception("auto continue failed")
 
 
 # ---------- verification prompt ----------
@@ -100,7 +152,7 @@ async def request_file(client, uid: int, fid: str):
     f = await db.get_file(fid)
     if not f:
         return await temp_send(client, uid, texts.file_missing())
-    miss = await fsub_missing(client, uid)
+    miss = await fsub_missing(client, uid) + await delivery_missing(client, uid)
     if miss:
         return await send_fsub_prompt(client, uid, fid, miss)
     if uid not in Config.ADMINS and verify.chain():
@@ -124,10 +176,13 @@ async def deliver(client, uid: int, f: dict):
     protect = bool(settings.get("protect_content"))
     cap = texts.file_caption(settings.get("caption"), f["name"], f.get("size"))
     secs = int(settings.get("del_file") or 0)
-    ch = str(settings.get("delivery_channel") or "").strip()
+    cid = _delivery_target()
+    if cid is not None:  # never hand out a channel link to someone who hasn't joined it
+        miss = await delivery_missing(client, uid)
+        if miss:
+            return await send_fsub_prompt(client, uid, f["_id"], miss)
     try:
-        if settings.get("delivery_mode") == "channel" and ch:
-            cid = int(ch) if re.fullmatch(r"-?\d+", ch) else ch
+        if cid is not None:
             sent = await client.send_cached_media(cid, f["file_id"], caption=cap, protect_content=protect)
             await db.schedule_delete(cid, sent.id, secs)
             await temp_send(

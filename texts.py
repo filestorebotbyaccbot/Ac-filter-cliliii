@@ -86,10 +86,11 @@ def file_caption(template: str, name: str, size) -> str:
         return esc(name)
 
 
-def fsub_prompt() -> str:
+def fsub_prompt(has_request: bool = False) -> str:
     return _join(
         "🔔 <b>JOIN REQUIRED</b>",
         "To get this file, first join the channel(s) below.",
+        "For a <b>request</b> channel just send the join request - your file follows automatically." if has_request else "",
         "Then tap <b>✅ I've joined</b>.",
     )
 

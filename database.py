@@ -207,6 +207,12 @@ async def schedule_delete(chat_id: int, message_id: int, seconds):
         await deletions.insert_one({"chat_id": chat_id, "message_id": message_id, "due": time.time() + int(seconds)})
 
 
+async def reschedule_delete(chat_id: int, message_id: int, seconds):
+    """Replace the delete timer of a message (e.g. a suggestion turned into results)."""
+    await deletions.delete_many({"chat_id": chat_id, "message_id": message_id})
+    await schedule_delete(chat_id, message_id, seconds)
+
+
 async def pop_due(limit: int = 200):
     docs = [d async for d in deletions.find({"due": {"$lte": time.time()}}).limit(limit)]
     if docs:
