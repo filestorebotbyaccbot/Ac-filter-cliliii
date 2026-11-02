@@ -1,4 +1,5 @@
 """/settings - every option of the bot, changed live with rich buttons (saved in MongoDB)."""
+import logging
 import re
 
 from pyrogram import Client, filters
@@ -9,6 +10,7 @@ from config import Config
 from richmsg import Btn
 from utils import esc
 
+log = logging.getLogger("settings")
 ADMIN = filters.user(Config.ADMINS) & filters.private
 _pending = {}  # admin id -> {"key": setting key or None (= add force-sub channel), "chat", "mid", "group"}
 
@@ -52,7 +54,7 @@ def group_view(g: str, note: str = ""):
         rows.append([Btn("➕ Add channel", cb="fsa", style="success")])
     rows.append([Btn("⬅️ Back", cb="st:main", style="primary")])
     if note:
-        lines.append(note)
+        lines.insert(2, note)
     return "\n".join(lines), rows
 
 
@@ -117,7 +119,8 @@ async def ask_value(client, cq):
     text = (
         f"✏️ <b>{esc(e['label'])}</b>\n"
         f"Current: <code>{esc(settings.display(e))}</code>\n"
-        f"{e.get('hint', '')}\n\n"
+        f"{e.get('hint', '')}\n"
+        f"{'Time examples: <code>30s</code> <code>15m</code> <code>1h</code> <code>1d</code> (a plain number = seconds)' if e['type'] == 'dur' else ''}\n\n"
         "👇 <i>Send the new value now</i> (<code>-</code> clears it)"
     )
     await richmsg.edit(cq.message, text, [[Btn("❌ Cancel", cb=f"st:{e['group']}", style="danger")]])
@@ -151,14 +154,9 @@ async def channel_edit(client, cq):
     await cq.answer("Saved")
 
 
-# group=-3: runs before the normal handlers; only reacts while this admin has an edit pending
-@Client.on_message(ADMIN & filters.text & ~filters.regex(r"^/"), group=-3)
-async def receive_value(client, message):
-    p = _pending.get(message.from_user.id)
-    if not p:
-        return
+async def _apply(client, message, p):
+    """Save what the admin typed. (Runs before stop_propagation, which raises and ends the handler.)"""
     raw = message.text.strip()
-    message.stop_propagation()
     try:
         await message.delete()  # the value may be an API key
     except Exception:
@@ -184,7 +182,7 @@ async def receive_value(client, message):
         chans.append({"chat_id": chat.id, "title": chat.title or str(chat.id), "mode": "normal", "link": ""})
         await settings.set("fsub_channels", chans)
         _pending.pop(message.from_user.id, None)
-        return await back(f"✅ Added <b>{esc(chat.title)}</b>")
+        return await back(f"✅ <b>Saved!</b> Added <b>{esc(chat.title)}</b>")
 
     e = settings.ENTRY[p["key"]]
     ok, val = settings.parse_input(e, raw)
@@ -192,4 +190,17 @@ async def receive_value(client, message):
         return await back(f"❌ {val}")
     await settings.set(e["key"], val)
     _pending.pop(message.from_user.id, None)
-    await back("✅ Saved")
+    await back(f"✅ <b>Saved!</b> {esc(e['label'])} = <code>{esc(settings.display(e))}</code>")
+
+
+# group=-3: runs before the normal handlers; only reacts while this admin has an edit pending
+@Client.on_message(ADMIN & filters.text & ~filters.regex(r"^/"), group=-3)
+async def receive_value(client, message):
+    p = _pending.get(message.from_user.id)
+    if not p:
+        return
+    try:
+        await _apply(client, message, p)
+    except Exception:
+        log.exception("saving a setting failed")
+    message.stop_propagation()  # raises StopPropagation: keeps the value away from the normal search handler
