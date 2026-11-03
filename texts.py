@@ -95,13 +95,14 @@ def fsub_prompt(has_request: bool = False) -> str:
     )
 
 
-def verify_prompt(stage: int, name, free_text: str, valid_text: str) -> str:
-    head = "🛡 <b>VERIFICATION REQUIRED</b>" if stage == 1 else "⚡ <b>EXTEND YOUR FREE TIME</b>"
-    reward = (
-        f"✅ After verifying, all files are free until <b>{valid_text}</b> today."
-        if stage == 1
-        else f"✅ After this verification you get <b>{free_text}</b> of free access."
-    )
+def verify_prompt(stage: int, name, two: bool, gap_text: str, free_text: str, valid_text: str) -> str:
+    head = f"🛡 <b>VERIFICATION {stage}/2</b>" if two else "🛡 <b>VERIFICATION REQUIRED</b>"
+    if stage == 2:
+        reward = f"✅ After this you get <b>{free_text}</b> of free access."
+    elif two:
+        reward = f"✅ After this all files are free for <b>{gap_text}</b>.\nThen one more quick verification (2/2) gives you <b>{free_text}</b>."
+    else:
+        reward = f"✅ After verifying, all files are free until <b>{valid_text}</b> today."
     return _join(
         head,
         f"◉ <b>File:</b> {esc(name)}" if name else "",
@@ -116,9 +117,16 @@ def verify_unavailable() -> str:
     return _join("⚠️ <b>VERIFICATION UNAVAILABLE</b>", "Couldn't create the verification link. Please try again in a minute.")
 
 
-def verify_ok(stage: int, free_text: str, valid_text: str) -> str:
-    when = f"until <b>{valid_text}</b> today" if stage == 1 else f"for <b>{free_text}</b>"
-    return _join("✅ <b>VERIFIED</b>", f"All files are free {when}.")
+def verify_ok(stage: int, two: bool, gap_text: str, free_text: str, valid_text: str) -> str:
+    if stage == 2:
+        return _join("✅ <b>VERIFIED 2/2</b>", f"All files are free for <b>{free_text}</b>.")
+    if two:
+        return _join(
+            "✅ <b>VERIFIED 1/2</b>",
+            f"All files are free for <b>{gap_text}</b>.",
+            f"After that, one more verification (2/2) gives you <b>{free_text}</b>.",
+        )
+    return _join("✅ <b>VERIFIED</b>", f"All files are free until <b>{valid_text}</b> today.")
 
 
 def verify_fail(kind: str) -> str:

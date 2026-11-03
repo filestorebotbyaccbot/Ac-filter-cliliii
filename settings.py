@@ -22,9 +22,10 @@ for n, on in ((1, True), (2, False)):
 _e("vf", "verify_enabled", "Verification", "bool", True)
 _e("vf", "verify_format", "Format (server = hides shortener link)", "choice", "server", options=["server", "direct"])
 _e("vf", "alias_min", "Alias length (min 15)", "int", 15, min=15, max=40, hint="Random alias length for every short link. Minimum 15")
-_e("vf", "verify_gap", "Verification gap (fastest allowed)", "dur", 30, min=0, hint="e.g. <code>30s</code>. Finishing faster = bypass = rejected")
-_e("vf", "token_ttl", "Link valid for", "dur", 900, min=60, hint="e.g. <code>15m</code>")
-_e("vf", "v2_free", "Free time after 2nd verification", "dur", 86400, min=60, hint="e.g. <code>1d</code>, <code>12h</code>, <code>1h</code>")
+_e("vf", "v2_gap", "Gap before 2nd verification", "dur", 3600, min=60, hint="After the 1st verification the user is free for this long, then the 2nd is asked (never past 12:00 AM). e.g. <code>1h</code>")
+_e("vf", "v2_free", "Valid time after 2nd verification", "dur", 86400, min=60, hint="Free time after the 2nd verification. e.g. <code>1d</code>, <code>12h</code>, <code>1h</code>")
+_e("vf", "verify_gap", "Fastest allowed (bypass guard)", "dur", 30, min=0, hint="Finishing a verification faster than this is rejected as bypass. e.g. <code>30s</code>")
+_e("vf", "token_ttl", "Verify link valid for", "dur", 900, min=60, hint="e.g. <code>15m</code>")
 _e("vf", "tz_offset", "Timezone offset (minutes)", "int", 330, min=-720, max=840, hint="India = <code>330</code>. One verification resets at 12:00 AM of this timezone")
 
 # ---- delivery ----

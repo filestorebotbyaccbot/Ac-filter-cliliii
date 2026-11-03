@@ -142,7 +142,10 @@ async def send_verify_prompt(client, uid: int, stage: int, fid):
         rows.append([Btn("🎥 How to verify", url=tut, style="primary")])
     await temp_send(
         client, uid,
-        texts.verify_prompt(stage, f and f["name"], fmt_duration(settings.get("v2_free")), valid_text),
+        texts.verify_prompt(
+            stage, f and f["name"], len(verify.chain()) > 1,
+            fmt_duration(settings.get("v2_gap")), fmt_duration(settings.get("v2_free")), valid_text,
+        ),
         rows,
     )
 
@@ -156,9 +159,11 @@ async def request_file(client, uid: int, fid: str):
     if miss:
         return await send_fsub_prompt(client, uid, fid, miss)
     if uid not in Config.ADMINS and verify.chain():
-        ok, _, _ = verify.access(await db.get_user(uid))
-        if not ok:
+        step, _ = verify.current(await db.get_user(uid))
+        if step == "need1":  # first time today (or reset at 12 AM): straight to 1/2
             return await send_verify_prompt(client, uid, 1, fid)
+        if step == "need2":  # the gap after 1/2 is over: ask 2/2
+            return await send_verify_prompt(client, uid, 2, fid)
     await deliver(client, uid, f)
 
 

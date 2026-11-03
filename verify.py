@@ -1,4 +1,11 @@
-"""Verification: tokens, shortener steps, access time, bypass protection and the /go/<token> server page."""
+"""Verification: tokens, 1/2 + 2/2 steps, free-time rules, bypass protection and the /go/<token> server page.
+
+Rules
+- Verification 1 is asked straight away. After it the user is free for the GAP time (setting `v2_gap`), never past 12:00 AM.
+- When the gap is over (same day) Verification 2 is asked. After it the user is free for the VALID time (`v2_free`).
+- If only Verification 1 was done today, it is forgotten at 12:00 AM: the user starts again from 1/2, even days later.
+- With a single shortener: one verification = free until 11:59 PM.
+"""
 import html
 import logging
 import secrets
@@ -27,18 +34,32 @@ def next_midnight(ts: float, tz_min: int) -> float:
     return (int(ts + off) // 86400 + 1) * 86400 - off
 
 
-def access(user: dict, ts: float = None):
-    """-> (has access, valid until, tier). tier 2 = long free time, 1 = until midnight, 0 = none."""
-    ts = ts or time.time()
-    v1, v2 = (user or {}).get("v1_until", 0), (user or {}).get("v2_until", 0)
-    return max(v1, v2) > ts, max(v1, v2), (2 if v2 > ts else 1 if v1 > ts else 0)
+def state(user: dict, ts: float, tz_min: int, gap: int, two_steps: bool):
+    """-> (name, free until). name: 'ok' (free until that time) | 'need1' | 'need2'"""
+    user = user or {}
+    v2 = user.get("v2_until", 0)
+    if v2 > ts:  # long free time after Verification 2
+        return "ok", v2
+    v1 = user.get("v1_at", 0)
+    midnight = next_midnight(v1, tz_min) if v1 else 0
+    if v1 and ts < midnight:  # Verification 1 was done today
+        if not two_steps:
+            return "ok", midnight
+        free_until = min(v1 + int(gap), midnight)
+        if ts < free_until:
+            return "ok", free_until
+        return "need2", 0
+    return "need1", 0  # nothing valid today (or it was reset at 12 AM): start again from 1/2
 
 
-def grant_fields(stage: int, ts: float, tz_min: int, free_secs: int) -> dict:
-    """Stage 1 = one verification: valid until 11:59 PM, resets at 12:00 AM. Stage 2 = long free time."""
+def current(user: dict, ts: float = None):
+    return state(user, ts or time.time(), settings.get("tz_offset"), int(settings.get("v2_gap")), len(chain()) > 1)
+
+
+def grant_fields(stage: int, ts: float, free_secs: int) -> dict:
     if stage == 1:
-        return {"v1_until": next_midnight(ts, tz_min)}
-    return {"v2_until": ts + int(free_secs)}
+        return {"v1_at": ts}
+    return {"v2_until": ts + int(free_secs), "v1_at": 0}  # after 2/2 the cycle restarts from 1/2 when the valid time ends
 
 
 def dest_url(token: str) -> str:
@@ -73,7 +94,7 @@ async def link_for(doc: dict):
 
 
 async def complete(uid: int, token: str):
-    """-> (status, token doc). status: ok | missing | notyours | used | expired | fast"""
+    """-> (status, token doc). status: ok | stale | missing | notyours | used | expired | fast"""
     doc = await db.tokens_get(token)
     if not doc:
         return "missing", None
@@ -92,7 +113,10 @@ async def complete(uid: int, token: str):
         return "fast", doc
     if not await db.tokens_use(token, ts):
         return "used", doc
-    await db.set_user(uid, grant_fields(doc["stage"], ts, settings.get("tz_offset"), settings.get("v2_free")))
+    name, _ = current(await db.get_user(uid), ts)
+    if name != f"need{doc['stage']}":  # already verified at this step (older link): don't extend the free time
+        return "stale", doc
+    await db.set_user(uid, grant_fields(doc["stage"], ts, settings.get("v2_free")))
     await db.log_event(f"verify{doc['stage']}", uid)
     return "ok", doc
 

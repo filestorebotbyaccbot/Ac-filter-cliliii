@@ -23,12 +23,15 @@
 - **Protection**: no forward / save on delivered files.
 - **Search**: scores, page size, suggestions, group behaviour.   **Links**: Request Story, updates channel.
 
-## Verification rules
-- One verification (Shortener 1) = free until **11:59 PM**, resets at 12:00 AM (your timezone setting).
-- Second verification (Shortener 2, optional button) = free for the time you set (1d, 1h ...).
+## Verification rules (1/2 and 2/2)
+- **1/2 is asked straight away.** After it the user is free for the **gap time** (`Gap before 2nd verification`, e.g. 1h) - never past 12:00 AM.
+- When the gap is over (same day) **2/2 is asked**. After it the user is free for the **valid time** (`Valid time after 2nd verification`, e.g. 1d or 1h).
+- If only 1/2 was done today it is forgotten at **12:00 AM**: the user starts again from 1/2, even if they come back 2 days later.
+- When the valid time ends, the cycle restarts from 1/2.
+- Only one shortener turned on: one verification = free until 11:59 PM.
 - Every short link gets a random alias of 15+ characters.
 - **server** format: the Verify button opens `your-app/go/<token>` which redirects to the shortener, so users never see the real shortener link.
-- Bypass protection: link works once, only for the user it was made for, expires, and finishing faster than the **gap** time is rejected.
+- Bypass protection: a link works once, only for the user it was made for, expires, finishing faster than **Fastest allowed** is rejected, and an old link can't extend free time that is already running.
 
 ## Joining rules
 - **Force-sub, normal**: user must be a member. **Request mode**: the user sends a join request on the bot's link, the bot notices it (needs the bot to be **admin with "Invite users"** in that channel), and the file arrives automatically. "Auto-approve" can accept the request at once.
