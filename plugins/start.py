@@ -40,15 +40,18 @@ async def start(client, message):
 
 async def on_verify_return(client, uid: int, token: str):
     status, doc = await verify.complete(uid, token)
+    if status == "stale":  # an older link of a step that is already done: nothing to grant, just continue
+        if doc and doc.get("file_id"):
+            await delivery.request_file(client, uid, doc["file_id"])
+        return
     if status == "ok":
         tz = settings.get("tz_offset")
-        stage = doc["stage"]
+        two = len(verify.chain()) > 1
         valid_text = fmt_clock(verify.next_midnight(time.time(), tz) - 60, tz)
-        free_text = fmt_duration(settings.get("v2_free"))
-        rows = []
-        if stage == 1 and len(verify.chain()) > 1:  # optional second verification for longer free time
-            rows = [[Btn(f"⚡ Get {free_text} free", cb="vf2", style="success")]]
-        await delivery.temp_send(client, uid, texts.verify_ok(stage, free_text, valid_text), rows)
+        await delivery.temp_send(
+            client, uid,
+            texts.verify_ok(doc["stage"], two, fmt_duration(settings.get("v2_gap")), fmt_duration(settings.get("v2_free")), valid_text),
+        )
         if doc.get("file_id"):
             f = await db.get_file(doc["file_id"])
             if f:
@@ -73,13 +76,8 @@ async def fsub_retry(client, cq):
 
 
 @Client.on_callback_query(filters.regex(r"^vf2$"))
-async def second_verification(client, cq):
-    uid = cq.from_user.id
-    ok, _, tier = verify.access(await db.get_user(uid))
-    if tier == 2:
-        return await cq.answer("You already have the long free time ✅", show_alert=True)
-    await cq.answer()
-    await delivery.send_verify_prompt(client, uid, 2, None)
+async def old_second_button(client, cq):  # buttons from older messages
+    await cq.answer("The 2nd verification is asked automatically after your free time ends.", show_alert=True)
 
 
 @Client.on_callback_query(filters.regex(r"^noop$"))
